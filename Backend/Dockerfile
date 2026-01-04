@@ -1,20 +1,25 @@
-# Use an official Python runtime as a parent image
-FROM python:3.9-slim
+# Base image
+FROM python:3.11-slim
 
-# Set the working directory in the container
+# Set working directory
 WORKDIR /app
 
-# Copy the requirements file into the container at /app
+# Install system dependencies (ffmpeg is required for yt-dlp to merge audio/video if needed, though we strictly use subs now, it's safer)
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
 COPY requirements.txt .
 
-# Install any needed packages specified in requirements.txt
+# Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
+# Copy application code
 COPY . .
 
-# Expose port 8000
+# Expose port
 EXPOSE 8000
 
-# Run app.py when the container launches
+# Run the application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

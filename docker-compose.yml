@@ -2,30 +2,26 @@ version: '3.8'
 
 services:
   backend:
-    build: ./backend
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-    volumes:
-      - ./backend:/app
+      - CHAT_MODEL=${CHAT_MODEL:-gemini-2.5-flash}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-models/text-embedding-004}
     restart: always
 
   frontend:
     build:
-      context: ./frontend
+      context: ./Frontend
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000/api
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
     depends_on:
       - backend
-    # For development, we just run npm run dev. 
-    # Requires a Dockerfile in frontend or we can use a node image here directly.
-    # To keep it simple for now, we'll assume standard Node image usage or creating a dev Dockerfile.
-    command: npm run dev
+    # In production, we use the default CMD from Dockerfile (npm start)
+    # For local dev via docker-compose, we can override if needed, but 'npm start' is safer for "Deployable" check.
