@@ -37,12 +37,12 @@ app.add_middleware(
 )
 
 # Configuration
+# We allow the key to be missing at startup for BYOK (Bring Your Own Key) mode
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/text-embedding-004")
 CHAT_MODEL = os.getenv("CHAT_MODEL", "gemini-2.5-flash")
 
 # Persistence Setup
 TEMP_PATH = "./temp_subs"
-
 os.makedirs(TEMP_PATH, exist_ok=True)
 
 # Database
@@ -57,6 +57,22 @@ def init_db():
     db_conn.commit()
 
 init_db()
+
+# --- Helpers for Key Resolution ---
+from fastapi import Header, Request
+
+def get_api_key(x_gemini_api_key: str | None = Header(default=None)):
+    """
+    Prioritize Server Env Key. If missing, use Client Header Key.
+    """
+    env_key = os.getenv("GOOGLE_API_KEY")
+    if env_key:
+        return env_key
+    
+    if x_gemini_api_key:
+        return x_gemini_api_key
+        
+    raise HTTPException(status_code=401, detail="Missing API Key. Please provide a Google API Key in settings.")
 
 class VideoRequest(BaseModel):
     url: str
@@ -122,15 +138,14 @@ def add_message(session_id, role, content):
 
 @app.get("/")
 async def health_check():
-    return {"status": "ok", "message": "YouTube AI Chatbot API (Ephemeral + yt-dlp) is running"}
+    return {"status": "ok", "message": "YouTube AI Chatbot API is running"}
 
 import chromadb
 global_chroma_client = chromadb.Client()
 
 @app.post("/api/process")
-async def process_video(request: VideoRequest):
-    if not GOOGLE_API_KEY:
-         raise HTTPException(status_code=500, detail="Server configuration error: Google API Key missing.")
+async def process_video(request: VideoRequest, x_gemini_api_key: str | None = Header(default=None)):
+    api_key = get_api_key(x_gemini_api_key)
          
     try:
         session_id = str(uuid.uuid4())
@@ -148,7 +163,7 @@ async def process_video(request: VideoRequest):
         if not splits:
              raise HTTPException(status_code=400, detail="Transcript was empty.")
 
-        embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL, google_api_key=GOOGLE_API_KEY)
+        embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL, google_api_key=api_key)
         
         # Vector Store Creation
         Chroma.from_documents(
@@ -173,11 +188,13 @@ async def process_video(request: VideoRequest):
         logger.error(f"Error processing video: {e}")
         msg = str(e)
         if "HTTP Error 429" in msg:
-            msg = "YouTube is rate-limiting requests (429). Please try again later."
+            msg = "Rate limit reached. If you are using a clear key, try setting your own API Key."
         raise HTTPException(status_code=500, detail=msg)
 
 @app.post("/api/chat")
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, x_gemini_api_key: str | None = Header(default=None)):
+    api_key = get_api_key(x_gemini_api_key)
+
     session_id = request.session_id
     
     c = db_conn.cursor()
@@ -188,7 +205,7 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=404, detail="Session not found. Please re-process the video.")
     
     try:
-        embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL, google_api_key=GOOGLE_API_KEY)
+        embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL, google_api_key=api_key)
         
         # Vector Store Retrieval
         vector_store = Chroma(
@@ -207,7 +224,7 @@ async def chat(request: ChatRequest):
                 chat_history_tuples.append((temp_q, content))
                 temp_q = None
 
-        llm = ChatGoogleGenerativeAI(model=CHAT_MODEL, temperature=0.7, google_api_key=GOOGLE_API_KEY)
+        llm = ChatGoogleGenerativeAI(model=CHAT_MODEL, temperature=0.7, google_api_key=api_key)
         retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4})
         
         qa_chain = ConversationalRetrievalChain.from_llm(
