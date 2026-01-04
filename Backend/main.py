@@ -3,13 +3,16 @@ import uuid
 import logging
 import sqlite3
 import json
+import yt_dlp
+import webvtt
+import glob
 from datetime import datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from langchain_community.document_loaders import YoutubeLoader
+from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain.chains import ConversationalRetrievalChain
@@ -40,9 +43,11 @@ app.add_middleware(
 # --- Persistence Setup ---
 DB_PATH = "./db/chat_history.db"
 CHROMA_PATH = "./db/chroma_db"
+TEMP_PATH = "./temp_subs"
 
-# Ensure db directory exists
+# Ensure directories exist
 os.makedirs("./db", exist_ok=True)
+os.makedirs(TEMP_PATH, exist_ok=True)
 
 # Initialize SQLite
 def init_db():
@@ -64,6 +69,56 @@ class ChatRequest(BaseModel):
     question: str
     session_id: str
 
+class YtDlpLoader:
+    def __init__(self, url):
+        self.url = url
+
+    def load(self):
+        # Configure yt-dlp to download subtitles only
+        ydl_opts = {
+            'skip_download': True,
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            # Prefer English, then others. 
+            # yt-dlp will auto-translate if we ask, but 'all' is safer to just get whatever exists.
+            'subtitleslangs': ['en', 'en-US', 'en-orig', 'en-GB'], 
+            'outtmpl': f'{TEMP_PATH}/%(id)s',
+            'quiet': True,
+            'no_warnings': True
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(self.url, download=True)
+                video_title = info.get('title', 'Unknown Title')
+                video_id = info.get('id')
+
+            # yt-dlp saves as [id].en.vtt or similar. Find the file.
+            vtt_files = glob.glob(f"{TEMP_PATH}/{video_id}*.vtt")
+            
+            if not vtt_files:
+                 # Fallback: Try to get ANY subtitle if English failed
+                 return [], video_title
+
+            # Parse the first VTT file found
+            vtt_file = vtt_files[0]
+            text_content = ""
+            
+            for caption in webvtt.read(vtt_file):
+                text_content += caption.text + " "
+            
+            # Cleanup temp file
+            try:
+                os.remove(vtt_file)
+            except:
+                pass
+
+            return [Document(page_content=text_content.strip(), metadata={"title": video_title, "source": self.url})], video_title
+
+        except Exception as e:
+            logger.error(f"yt-dlp error: {e}")
+            raise e
+
 def get_chat_history(session_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -82,7 +137,7 @@ def add_message(session_id, role, content):
 
 @app.get("/")
 async def health_check():
-    return {"status": "ok", "message": "YouTube AI Chatbot API (Persistent) is running"}
+    return {"status": "ok", "message": "YouTube AI Chatbot API (Persistent + yt-dlp) is running"}
 
 @app.post("/api/process")
 async def process_video(request: VideoRequest):
@@ -94,17 +149,12 @@ async def process_video(request: VideoRequest):
         session_id = str(uuid.uuid4())
         logger.info(f"Processing URL: {request.url} for Session: {session_id}")
 
-        # 2. Load Transcript
-        loader = YoutubeLoader.from_youtube_url(
-            request.url, 
-            add_video_info=True,
-            language=["en", "en-US"],
-            translation="en"
-        )
-        docs = loader.load()
+        # 2. Load Transcript using yt-dlp
+        loader = YtDlpLoader(request.url)
+        docs, video_title = loader.load()
         
-        if not docs:
-            raise HTTPException(status_code=400, detail="Could not retrieve transcript.")
+        if not docs or not docs[0].page_content:
+            raise HTTPException(status_code=400, detail="Could not retrieve transcript. Video might not have English captions.")
 
         # 3. Split Text
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
@@ -115,17 +165,16 @@ async def process_video(request: VideoRequest):
 
         # 4. Create/Update Persistent Vector Store
         # We use a unique collection name per session to isolate different videos
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=GOOGLE_API_KEY)
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=GOOGLE_API_KEY)
         
         vector_store = Chroma.from_documents(
             documents=splits, 
             embedding=embeddings, 
-            persist_directory=CHROMA_PATH,
+            persist_directory=CHROMA_PATH, 
             collection_name=f"session_{session_id}"
         )
         
         # 5. Store Session Metadata
-        video_title = docs[0].metadata.get("title", "Unknown Title")
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute("INSERT INTO sessions (session_id, video_title, created_at) VALUES (?, ?, ?)",
@@ -142,7 +191,11 @@ async def process_video(request: VideoRequest):
         
     except Exception as e:
         logger.error(f"Error processing video: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Clean error message
+        msg = str(e)
+        if "HTTP Error 429" in msg:
+            msg = "YouTube is rate-limiting requests (429). Please try again later."
+        raise HTTPException(status_code=500, detail=msg)
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
@@ -160,7 +213,7 @@ async def chat(request: ChatRequest):
     
     try:
         # Load Existing Vector Store
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=GOOGLE_API_KEY)
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=GOOGLE_API_KEY)
         vector_store = Chroma(
             persist_directory=CHROMA_PATH, 
             embedding_function=embeddings,
@@ -169,9 +222,6 @@ async def chat(request: ChatRequest):
         
         # Load Chat History
         raw_history = get_chat_history(session_id)
-        # LangChain expects list of (question, answer) tuples for history
-        # Our SQL stores individual messages. We need to pair them up or just pass them as context.
-        # For ConversationalRetrievalChain, we typically pass [(q, a), (q, a)]
         
         chat_history_tuples = []
         temp_q = None
