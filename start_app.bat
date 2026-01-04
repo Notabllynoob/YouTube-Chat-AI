@@ -1,0 +1,14 @@
+@echo off
+echo Starting YouTube AI Chatbot...
+
+:: Start Backend
+echo Starting Backend...
+start "Backend API" cmd /k "venv\Scripts\activate && python backend\main.py"
+
+:: Start Frontend
+echo Starting Frontend...
+start "Frontend App" cmd /k "cd frontend && npm run dev"
+
+echo Services started! 
+echo Open http://localhost:3000 to chat.
+pause
