@@ -1,11 +1,9 @@
 @echo off
 echo Starting YouTube AI Chatbot...
 
-:: Start Backend
 echo Starting Backend...
 start "Backend API" cmd /k "venv\Scripts\activate && pip install --upgrade yt-dlp >nul 2>&1 && python backend\main.py"
 
-:: Start Frontend
 echo Starting Frontend...
 start "Frontend App" cmd /k "cd frontend && npm run dev"
 

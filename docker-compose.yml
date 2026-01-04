@@ -23,5 +23,3 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:8000/api
     depends_on:
       - backend
-    # In production, we use the default CMD from Dockerfile (npm start)
-    # For local dev via docker-compose, we can override if needed, but 'npm start' is safer for "Deployable" check.
