@@ -19,6 +19,9 @@ export default function ChatInterface() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const [apiKey, setApiKey] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
+
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
   const scrollToBottom = () => {
@@ -29,7 +32,6 @@ export default function ChatInterface() {
     scrollToBottom();
   }, [messages]);
 
-  // Session Management
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const savedSession = sessionStorage.getItem('chat_session_id');
@@ -43,6 +45,19 @@ export default function ChatInterface() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedKey = sessionStorage.getItem('gemini_api_key');
+      if (savedKey) setApiKey(savedKey);
+    }
+  }, []);
+
+  const saveApiKey = (key: string) => {
+    setApiKey(key);
+    sessionStorage.setItem('gemini_api_key', key);
+    setShowSettings(false);
+  };
 
   const handleNewChat = () => {
     if (typeof window !== 'undefined') {
@@ -64,9 +79,12 @@ export default function ChatInterface() {
     setStatus('Processing video script...');
 
     try {
+      const headers: any = { 'Content-Type': 'application/json' };
+      if (apiKey) headers['x-gemini-api-key'] = apiKey;
+
       const res = await fetch(`${API_BASE}/process`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         body: JSON.stringify({ url }),
       });
 
@@ -101,9 +119,12 @@ export default function ChatInterface() {
     setStatus('Thinking...');
 
     try {
+      const headers: any = { 'Content-Type': 'application/json' };
+      if (apiKey) headers['x-gemini-api-key'] = apiKey;
+
       const res = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         body: JSON.stringify({ question: userMsg, session_id: sessionId }),
       });
 
@@ -121,7 +142,6 @@ export default function ChatInterface() {
     }
   };
 
-  // UI Styles
   const bgMain = isDarkMode ? 'bg-[#212121]' : 'bg-white';
   const bgSidebar = isDarkMode ? 'bg-[#171717]' : 'bg-[#F9F9F9]';
   const textPrimary = isDarkMode ? 'text-gray-100' : 'text-gray-800';
@@ -133,7 +153,38 @@ export default function ChatInterface() {
   return (
     <div className={`w-full h-full ${bgMain} ${textPrimary} flex font-sans text-sm md:text-base overflow-hidden`}>
 
-      {/* Sidebar Area */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className={`${bgMain} p-6 rounded-xl shadow-2xl w-full max-w-md border ${border}`}>
+            <h3 className="text-lg font-semibold mb-2">Settings</h3>
+            <p className={`text-sm ${textSecondary} mb-4`}>
+              Enter your Google Gemini API Key. It is stored securely in your browser's session and never saved to our servers.
+            </p>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="Paste your API Key here"
+              className={`w-full p-2 rounded-lg border ${border} ${inputBg} outline-none mb-4`}
+            />
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => setShowSettings(false)}
+                className="px-4 py-2 text-gray-500 hover:text-gray-700 font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => saveApiKey(apiKey)}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium"
+              >
+                Save Key
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={`w-[260px] ${bgSidebar} flex flex-col p-3 transition-colors duration-300 hidden md:flex border-r ${border}`}>
         <div className="flex justify-between items-center mb-4 px-2">
           <button
@@ -145,9 +196,12 @@ export default function ChatInterface() {
             </div>
             <span>New chat</span>
           </button>
-          <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 text-gray-500 hover:text-gray-800">
-            {isDarkMode ? '☀️' : '🌙'}
-          </button>
+
+          <div className="flex items-center space-x-1">
+            <button onClick={() => setShowSettings(true)} className="p-2 text-gray-500 hover:text-gray-800" title="API Key Settings">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -158,20 +212,18 @@ export default function ChatInterface() {
         </div>
 
         <div className="mt-auto pt-4 border-t border-gray-200 dark:border-gray-700 px-2 flex items-center space-x-3">
-          <div className="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center text-white font-bold">
+          <div className="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center text-white font-bold shadow-sm">
             U
           </div>
           <div className="font-medium text-sm">User</div>
         </div>
       </div>
 
-      {/* Main Chat Interface */}
       <div className="flex-1 flex flex-col relative h-full">
 
         {!isDarkMode && (
-          <div className="absolute top-4 left-4 text-lg font-semibold text-gray-700 flex items-center space-x-1 cursor-pointer z-10">
+          <div className="absolute top-4 left-4 text-lg font-semibold text-gray-700 flex items-center space-x-1 z-10">
             <span>YouTube <span className="text-red-600">Chat AI</span></span>
-            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
           </div>
         )}
 
@@ -225,7 +277,7 @@ export default function ChatInterface() {
               value={!isProcessed ? url : input}
               onChange={(e) => !isProcessed ? setUrl(e.target.value) : setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && (!isProcessed ? handleProcess() : handleSend())}
-              placeholder={!isProcessed ? "Paste YouTube Video Link..." : "Ask me anything..."}
+              placeholder={!isProcessed ? "Paste YouTube Video Link..." : "Ask me anything... (Check Settings to add API Key if getting errors)"}
               className={`flex-1 bg-transparent outline-none ${textPrimary} placeholder-gray-400`}
               disabled={isLoading}
             />

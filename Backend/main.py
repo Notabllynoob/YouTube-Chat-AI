@@ -36,16 +36,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configuration
-# We allow the key to be missing at startup for BYOK (Bring Your Own Key) mode
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/text-embedding-004")
 CHAT_MODEL = os.getenv("CHAT_MODEL", "gemini-2.5-flash")
 
-# Persistence Setup
 TEMP_PATH = "./temp_subs"
 os.makedirs(TEMP_PATH, exist_ok=True)
 
-# Database
 db_conn = sqlite3.connect(":memory:", check_same_thread=False)
 
 def init_db():
@@ -58,13 +54,9 @@ def init_db():
 
 init_db()
 
-# --- Helpers for Key Resolution ---
 from fastapi import Header, Request
 
 def get_api_key(x_gemini_api_key: str | None = Header(default=None)):
-    """
-    Prioritize Server Env Key. If missing, use Client Header Key.
-    """
     env_key = os.getenv("GOOGLE_API_KEY")
     if env_key:
         return env_key
@@ -165,7 +157,6 @@ async def process_video(request: VideoRequest, x_gemini_api_key: str | None = He
 
         embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL, google_api_key=api_key)
         
-        # Vector Store Creation
         Chroma.from_documents(
             client=global_chroma_client,
             documents=splits, 
@@ -207,7 +198,6 @@ async def chat(request: ChatRequest, x_gemini_api_key: str | None = Header(defau
     try:
         embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL, google_api_key=api_key)
         
-        # Vector Store Retrieval
         vector_store = Chroma(
             client=global_chroma_client,
             collection_name=f"session_{session_id}",
