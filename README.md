@@ -2,8 +2,6 @@
 
 A powerful, private, and modern AI chatbot that watches YouTube videos for you. Paste a link, and chat with the video content instantly.
 
-![YouTube Chat AI UI](https://github.com/Notabllynoob/YouTube-Chat-AI/assets/placeholder/ui_screenshot.png)
-*(Note: Replace with actual screenshot link if available)*
 
 ## Features
 
