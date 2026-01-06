@@ -1,75 +1,66 @@
-# YouTube Chat AI 🎥🤖
+# YouTube AI Chatbot (RAG) 🎥🤖
 
-A powerful, private, and modern AI chatbot that watches YouTube videos for you. Paste a link, and chat with the video content instantly.
+**Chat with any YouTube video.** This AI Assistant processes YouTube video transcripts and lets you ask questions about the content in real-time.
 
+🚀 **Live Demo:** [https://youtube-chat-ai.vercel.app/](https://youtube-chat-ai.vercel.app/)
 
-## Features
+---
 
-*   **📺 Video Analysis**: Summarize, question, and explore any YouTube video.
-*   **🧠 Advanced AI**: Powered by Google's **Gemini 2.5 Flash** for fast, accurate responses.
-*   **🔒 Privacy First**: Ephemeral session handling. All data is wiped when you close the tab or restart the server.
-*   **💅 Modern UI**: Clean, full-screen "YouTube-themed" interface with glassmorphism and dark mode.
-*   **🏃‍♂️ Robust Backend**: Uses `yt-dlp` to reliably fetch transcripts, avoiding common IP blocks.
+## 🛠️ Tech Stack
 
-## 🚀 Getting Started
+This project is built using a modern **RAG (Retrieval-Augmented Generation)** architecture:
 
-You will need a **Google Gemini API Key**. [Get it here](https://aistudio.google.com/app/apikey).
+*   **Frontend**: Next.js (React), TailwindCSS, Lucide Icons
+*   **Backend**: FastAPI (Python), Dockerized
+*   **LLM Integration**: LangChain, Google Gemini Pro 1.5
+*   **Vector Database**: ChromaDB (Local persistent storage)
+*   **Video Processing**: `yt-dlp` (Subtitle extraction)
 
-### Option 1: Docker (Recommended)
+---
 
-1.  **Clone the repository**:
+## 📖 How to Use
+
+1.  **Open the App**: Go to the [Live Demo](https://youtube-chat-ai.vercel.app/).
+2.  **Add API Key**:
+    *   Click the **Settings (Gear Icon)** in the top right.
+    *   Enter your **Google Gemini API Key**. (You can get one for free from Google AI Studio).
+    *   *Note: Your key is stored locally in your browser session.*
+3.  **Choose a Video**:
+    *   Paste a YouTube link into the input box.
+    *   **Pro Tip**: Works best with videos that have **existing subtitles/captions**.
+    *   **Length Recommendation**: 10-20 minutes is ideal for the best speed and accuracy.
+4.  **Chat**: Ask anything! "What is the summary?", "What did he say about X?", etc.
+
+---
+
+## 🏗️ Architecture
+
+1.  **Ingestion**: The backend downloads the subtitles using `yt-dlp`.
+2.  **Chunking**: Text is split into chunks of 1000 characters.
+3.  **Embedding**: Chunks are converted into vector embeddings using Google's embedding model.
+4.  **Retrieval**: When you ask a question, the system finds the top 4 most relevant chunks from ChromaDB.
+5.  **Generation**: The relevant context + your question is sent to Gemini to generate the answer.
+
+---
+
+## 🚀 Local Development
+
+1.  **Clone the repo**
     ```bash
     git clone https://github.com/Notabllynoob/YouTube-Chat-AI.git
     cd YouTube-Chat-AI
     ```
 
-2.  **Configure Environment**:
-    *   Navigate to the `Backend` folder.
-    *   Rename `.env.example` to `.env`.
-    *   Open `.env` and paste your `GOOGLE_API_KEY`.
-    
-    *(Alternatively, you can pass the key directly in `docker-compose.yml` or your deployment environment variables).*
-
-3.  **Run with Docker Compose**:
+2.  **Backend** (Docker)
     ```bash
+    cd Backend
+    # Create .env with GOOGLE_API_KEY
     docker-compose up --build
     ```
 
-4.  **Open the App**:
-    Visit [http://localhost:3000](http://localhost:3000).
-
----
-
-### Option 2: Run Locally (Dev)
-
-**Backend:**
-```bash
-cd Backend
-# Create virtual env (optional but recommended)
-python -m venv venv
-# Windows: venv\Scripts\activate | Mac/Linux: source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Setup .env (as above)
-# Run Server
-python main.py
-```
-
-**Frontend:**
-```bash
-cd Frontend
-npm install
-npm run dev
-```
-
-## 🛠️ Tech Stack
-
-*   **Frontend**: Next.js, Tailwind CSS, TypeScript
-*   **Backend**: FastAPI, LangChain, ChromaDB (In-Memory), SQLite (In-Memory)
-*   **AI Models**: Gemini 2.5 Flash (Chat), Text-Embedding-004
-
-## License
-
-MIT
+3.  **Frontend**
+    ```bash
+    cd Frontend
+    npm install
+    npm run dev
+    ```
