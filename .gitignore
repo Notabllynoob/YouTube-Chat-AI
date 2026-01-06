@@ -36,3 +36,10 @@ yarn-error.log*
 .idea/
 .vscode/
 *.swp
+
+# Deployment Cleanup
+web-app/
+test_*.py
+check_*.py
+*.bat
+MAINTENANCE.md
