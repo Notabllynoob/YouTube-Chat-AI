@@ -3,11 +3,9 @@ import uuid
 import logging
 import sqlite3
 import json
-import re
 import yt_dlp
 import webvtt
 import glob
-from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
 from datetime import datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -18,17 +16,21 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain.chains import ConversationalRetrievalChain
+from langchain_core.prompts import PromptTemplate
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.info("🚀 BACKEND STARTUP: Running in Local Mode 🚀")
 
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/text-embedding-004")
+CHAT_MODEL = os.getenv("CHAT_MODEL", "gemini-2.5-flash")
 
 if not GOOGLE_API_KEY:
-    logger.critical("GOOGLE_API_KEY not found in environment variables.")
+    logger.warning("GOOGLE_API_KEY is missing from environment variables!")
 
-app = FastAPI(title="YouTube AI Chatbot API")
+app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,37 +40,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/text-embedding-004")
-CHAT_MODEL = os.getenv("CHAT_MODEL", "gemini-2.5-flash")
-
+DB_PATH = "chat_history.db"
 TEMP_PATH = "./temp_subs"
 os.makedirs(TEMP_PATH, exist_ok=True)
 
-db_conn = sqlite3.connect(":memory:", check_same_thread=False)
+db_conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+db_conn.row_factory = sqlite3.Row
+db_conn.execute("""
+    CREATE TABLE IF NOT EXISTS history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT,
+        role TEXT,
+        content TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+""")
+db_conn.commit()
 
-def init_db():
-    c = db_conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS sessions
-                 (session_id TEXT PRIMARY KEY, video_title TEXT, created_at TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS messages
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, role TEXT, content TEXT, timestamp TEXT)''')
-    db_conn.commit()
+# Persistence for vector store
+PERSIST_DIRECTORY = "./chroma_db"
 
-init_db()
+def get_vector_store():
+    embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL, google_api_key=GOOGLE_API_KEY)
+    return Chroma(
+        collection_name="video_chats",
+        embedding_function=embeddings,
+        persist_directory=PERSIST_DIRECTORY
+    )
 
-from fastapi import Header, Request
-
-def get_api_key(x_gemini_api_key: str | None = Header(default=None)):
-    env_key = os.getenv("GOOGLE_API_KEY")
-    if env_key:
-        return env_key
-    
-    if x_gemini_api_key:
-        return x_gemini_api_key
-        
-    raise HTTPException(status_code=401, detail="Missing API Key. Please provide a Google API Key in settings.")
-
-class VideoRequest(BaseModel):
+class ProcessRequest(BaseModel):
     url: str
 
 class ChatRequest(BaseModel):
@@ -80,37 +80,9 @@ class YtDlpLoader:
         self.url = url
 
     def load(self):
-        # OPTION 1: Try youtube-transcript-api (Lightweight, less blocking)
-        video_id = None
-        try:
-            # Simple regex to extract video ID
-            match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", self.url)
-            if match:
-                video_id = match.group(1)
-                logger.info(f"Extracted Video ID: {video_id}")
-                
-                # Use list_transcripts for better compatibility
-                try:
-                    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-                    # Try to fetch manual english, or generated english, or any english
-                    try:
-                         transcript = transcript_list.find_transcript(['en', 'en-US', 'en-GB'])
-                    except:
-                         # Fallback to generated
-                         transcript = transcript_list.find_generated_transcript(['en', 'en-US', 'en-GB'])
-                    
-                    full_text = " ".join([t['text'] for t in transcript.fetch()])
-                    
-                    logger.info("Successfully fetched transcript via YouTubeTranscriptApi API! 🎉")
-                    return [Document(page_content=full_text, metadata={"title": f"Video {video_id}", "source": self.url})], f"Video {video_id}"
-                except Exception as inner_e:
-                    logger.warning(f"Failed to find English transcript: {inner_e}")
-                    raise inner_e
-
-        except Exception as e:
-             logger.warning(f"YouTubeTranscriptApi failed: {e}. Falling back to yt-dlp...")
-
-        # OPTION 2: Fallback to yt-dlp with Cookies (Heavy, robust but blocked often)
+        # Render failed for this: We tried youtube-transcript-api and secret files, 
+        # but YouTube blocks data center IPs. Reverted to simple local yt-dlp.
+        
         ydl_opts = {
             'skip_download': True,
             'writesubtitles': True,
@@ -121,46 +93,13 @@ class YtDlpLoader:
             'no_warnings': True,
             'nocheckcertificate': True,
             'ignoreerrors': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         }
-
-        # Handle Cookies: Priority 1: Render Secret File, Priority 2: Env Var
-        cookies_path = None
-        render_secret_path = "/etc/secrets/cookies.txt"
-        
-        if os.path.exists(render_secret_path):
-            file_size = os.path.getsize(render_secret_path)
-            logger.info(f"Found Render Secret File at {render_secret_path} (Size: {file_size} bytes)")
-            
-            if file_size > 0:
-                # COPY the secret file to a temp location because /etc/secrets is Read-Only
-                # yt-dlp needs write access to update the cookie jar
-                cookies_path = f"{TEMP_PATH}/cookies_secret_{uuid.uuid4()}.txt"
-                with open(render_secret_path, 'r') as src, open(cookies_path, 'w') as dst:
-                    dst.write(src.read())
-                
-                logger.info(f"Copied cookies to writable temp file: {cookies_path}")
-                ydl_opts['cookiefile'] = cookies_path
-            else:
-                logger.warning("Render Secret File exists but is EMPTY.")
-        else:
-            # Fallback to Env Var
-            logger.info("Render Secret File NOT found. Checking Env Var...")
-            cookies_content = os.getenv("YOUTUBE_COOKIES")
-            if cookies_content:
-                logger.info("Found YOUTUBE_COOKIES env var. Creating temp cookie file.")
-                cookies_path = f"{TEMP_PATH}/cookies_{uuid.uuid4()}.txt"
-                with open(cookies_path, "w") as f:
-                    f.write(cookies_content)
-                ydl_opts['cookiefile'] = cookies_path
-            else:
-                logger.warning("No cookies found (neither /etc/secrets/cookies.txt nor YOUTUBE_COOKIES). Bot detection likely.")
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(self.url, download=True)
                 if not info:
-                    raise Exception("Failed to extract video info (bot detection or empty response)")
+                     raise Exception("Failed to extract info")
                 
                 video_title = info.get('title', 'Unknown Title')
                 video_id = info.get('id')
@@ -168,7 +107,10 @@ class YtDlpLoader:
             vtt_files = glob.glob(f"{TEMP_PATH}/{video_id}*.vtt")
             
             if not vtt_files:
-                 return [], video_title
+                 # Try finding any vtt file if exact match fails (sometimes subs are named differently)
+                 vtt_files = glob.glob(f"{TEMP_PATH}/*.vtt")
+                 if not vtt_files:
+                    return [], video_title
 
             vtt_file = vtt_files[0]
             text_content = ""
@@ -176,8 +118,10 @@ class YtDlpLoader:
             for caption in webvtt.read(vtt_file):
                 text_content += caption.text + " "
             
+            # Cleanup
             try:
-                os.remove(vtt_file)
+                for f in glob.glob(f"{TEMP_PATH}/*"):
+                    os.remove(f)
             except:
                 pass
 
@@ -186,17 +130,10 @@ class YtDlpLoader:
         except Exception as e:
             logger.error(f"yt-dlp error: {e}")
             raise e
-        finally:
-            # Cleanup cookies file
-            if cookies_path and os.path.exists(cookies_path):
-                try:
-                    os.remove(cookies_path)
-                except:
-                    pass
 
 def get_chat_history(session_id):
     c = db_conn.cursor()
-    c.execute("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC", (session_id,))
+    c.execute("SELECT role, content FROM history WHERE session_id = ? ORDER BY id ASC", (session_id,))
     rows = c.fetchall()
     return [(r[0], r[1]) for r in rows]
 
