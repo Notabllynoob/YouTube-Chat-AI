@@ -91,9 +91,21 @@ class YtDlpLoader:
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         }
 
+        # Handle Cookies from Env
+        cookies_content = os.getenv("YOUTUBE_COOKIES")
+        cookies_path = None
+        if cookies_content:
+            cookies_path = f"{TEMP_PATH}/cookies_{uuid.uuid4()}.txt"
+            with open(cookies_path, "w") as f:
+                f.write(cookies_content)
+            ydl_opts['cookiefile'] = cookies_path
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(self.url, download=True)
+                if not info:
+                    raise Exception("Failed to extract video info (bot detection or empty response)")
+                
                 video_title = info.get('title', 'Unknown Title')
                 video_id = info.get('id')
 
@@ -118,6 +130,13 @@ class YtDlpLoader:
         except Exception as e:
             logger.error(f"yt-dlp error: {e}")
             raise e
+        finally:
+            # Cleanup cookies file
+            if cookies_path and os.path.exists(cookies_path):
+                try:
+                    os.remove(cookies_path)
+                except:
+                    pass
 
 def get_chat_history(session_id):
     c = db_conn.cursor()
