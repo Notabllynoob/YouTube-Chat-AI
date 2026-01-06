@@ -96,11 +96,23 @@ class YtDlpLoader:
         render_secret_path = "/etc/secrets/cookies.txt"
         
         if os.path.exists(render_secret_path):
-            logger.info(f"Found Render Secret File at {render_secret_path}")
-            cookies_path = render_secret_path
-            ydl_opts['cookiefile'] = cookies_path
+            file_size = os.path.getsize(render_secret_path)
+            logger.info(f"Found Render Secret File at {render_secret_path} (Size: {file_size} bytes)")
+            
+            if file_size > 0:
+                # COPY the secret file to a temp location because /etc/secrets is Read-Only
+                # yt-dlp needs write access to update the cookie jar
+                cookies_path = f"{TEMP_PATH}/cookies_secret_{uuid.uuid4()}.txt"
+                with open(render_secret_path, 'r') as src, open(cookies_path, 'w') as dst:
+                    dst.write(src.read())
+                
+                logger.info(f"Copied cookies to writable temp file: {cookies_path}")
+                ydl_opts['cookiefile'] = cookies_path
+            else:
+                logger.warning("Render Secret File exists but is EMPTY.")
         else:
             # Fallback to Env Var
+            logger.info("Render Secret File NOT found. Checking Env Var...")
             cookies_content = os.getenv("YOUTUBE_COOKIES")
             if cookies_content:
                 logger.info("Found YOUTUBE_COOKIES env var. Creating temp cookie file.")
