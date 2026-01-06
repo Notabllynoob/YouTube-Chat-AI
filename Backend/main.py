@@ -3,9 +3,11 @@ import uuid
 import logging
 import sqlite3
 import json
+import re
 import yt_dlp
 import webvtt
 import glob
+from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
 from datetime import datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -78,6 +80,28 @@ class YtDlpLoader:
         self.url = url
 
     def load(self):
+        # OPTION 1: Try youtube-transcript-api (Lightweight, less blocking)
+        video_id = None
+        try:
+            # Simple regex to extract video ID
+            match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", self.url)
+            if match:
+                video_id = match.group(1)
+                logger.info(f"Extracted Video ID: {video_id}")
+                
+                transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+                full_text = " ".join([t['text'] for t in transcript_list])
+                
+                logger.info("Successfully fetched transcript via YouTubeTranscriptApi API! 🎉")
+                # Need a title. The API doesn't give title, so we might need a fallback or just use ID.
+                # For better UX, we can try to fetch title via oembed or just generic info, 
+                # but let's stick to core functionality first.
+                return [Document(page_content=full_text, metadata={"title": f"Video {video_id}", "source": self.url})], f"Video {video_id}"
+
+        except Exception as e:
+             logger.warning(f"YouTubeTranscriptApi failed: {e}. Falling back to yt-dlp...")
+
+        # OPTION 2: Fallback to yt-dlp with Cookies (Heavy, robust but blocked often)
         ydl_opts = {
             'skip_download': True,
             'writesubtitles': True,
