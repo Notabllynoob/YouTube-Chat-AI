@@ -217,10 +217,24 @@ async def chat(request: ChatRequest, x_gemini_api_key: str | None = Header(defau
         llm = ChatGoogleGenerativeAI(model=CHAT_MODEL, temperature=0.7, google_api_key=api_key)
         retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4})
         
+        from langchain.prompts import PromptTemplate
+
+        custom_template = """You are an AI assistant analyzing a YouTube video transcript. Use the following pieces of transcript context to answer the question about the video. 
+If you don't know the answer, just say that you don't know, don't try to make up an answer.
+
+Context:
+{context}
+
+Question: {question}
+Helpful Answer (refer to "the video" or the content, not "the text"):"""
+
+        QA_CHAIN_PROMPT = PromptTemplate.from_template(custom_template)
+
         qa_chain = ConversationalRetrievalChain.from_llm(
             llm=llm,
             retriever=retriever,
-            verbose=True
+            verbose=True,
+            combine_docs_chain_kwargs={"prompt": QA_CHAIN_PROMPT}
         )
         
         result = qa_chain.invoke({
