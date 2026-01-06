@@ -1,4 +1,4 @@
-# YouTube AI Chatbot (RAG) 🎥🤖
+# YouTube AI Chatbot 
 
 **Chat with any YouTube video.** This AI Assistant processes YouTube video transcripts and lets you ask questions about the content in real-time.
 
@@ -12,24 +12,24 @@ This project is built using a modern **RAG (Retrieval-Augmented Generation)** ar
 
 *   **Frontend**: Next.js (React), TailwindCSS, Lucide Icons
 *   **Backend**: FastAPI (Python), Dockerized
-*   **LLM Integration**: LangChain, Google Gemini Pro 1.5
-*   **Vector Database**: ChromaDB (Local persistent storage)
-*   **Video Processing**: `yt-dlp` (Subtitle extraction)
+*   **LLM Integration**: LangChain, Google Gemini Pro 2.5 flash
+*    **Vector Database**: ChromaDB 
+*   **Video Processing**: `yt-dlp` 
 
 ---
 
 ## 📖 How to Use
 
-1.  **Open the App**: Go to the [Live Demo](https://youtube-chat-ai.vercel.app/).
+1.  **Open the App**: Go to the [Youtube Chat AI](https://youtube-chat-ai.vercel.app/).
 2.  **Add API Key**:
     *   Click the **Settings (Gear Icon)** in the top right.
     *   Enter your **Google Gemini API Key**. (You can get one for free from Google AI Studio).
     *   *Note: Your key is stored locally in your browser session.*
 3.  **Choose a Video**:
     *   Paste a YouTube link into the input box.
-    *   **Pro Tip**: Works best with videos that have **existing subtitles/captions**.
-    *   **Length Recommendation**: 10-20 minutes is ideal for the best speed and accuracy.
-4.  **Chat**: Ask anything! "What is the summary?", "What did he say about X?", etc.
+    *    Currently only Works  with videos that have existing subtitles/captions.
+    *   **Length Recommendation**: 10-20 minutes
+4.  **Chat**: Use as you may see fit
 
 ---
 
