@@ -91,14 +91,25 @@ class YtDlpLoader:
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         }
 
-        # Handle Cookies from Env
-        cookies_content = os.getenv("YOUTUBE_COOKIES")
+        # Handle Cookies: Priority 1: Render Secret File, Priority 2: Env Var
         cookies_path = None
-        if cookies_content:
-            cookies_path = f"{TEMP_PATH}/cookies_{uuid.uuid4()}.txt"
-            with open(cookies_path, "w") as f:
-                f.write(cookies_content)
+        render_secret_path = "/etc/secrets/cookies.txt"
+        
+        if os.path.exists(render_secret_path):
+            logger.info(f"Found Render Secret File at {render_secret_path}")
+            cookies_path = render_secret_path
             ydl_opts['cookiefile'] = cookies_path
+        else:
+            # Fallback to Env Var
+            cookies_content = os.getenv("YOUTUBE_COOKIES")
+            if cookies_content:
+                logger.info("Found YOUTUBE_COOKIES env var. Creating temp cookie file.")
+                cookies_path = f"{TEMP_PATH}/cookies_{uuid.uuid4()}.txt"
+                with open(cookies_path, "w") as f:
+                    f.write(cookies_content)
+                ydl_opts['cookiefile'] = cookies_path
+            else:
+                logger.warning("No cookies found (neither /etc/secrets/cookies.txt nor YOUTUBE_COOKIES). Bot detection likely.")
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
