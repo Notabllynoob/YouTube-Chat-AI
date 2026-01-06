@@ -89,14 +89,23 @@ class YtDlpLoader:
                 video_id = match.group(1)
                 logger.info(f"Extracted Video ID: {video_id}")
                 
-                transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-                full_text = " ".join([t['text'] for t in transcript_list])
-                
-                logger.info("Successfully fetched transcript via YouTubeTranscriptApi API! 🎉")
-                # Need a title. The API doesn't give title, so we might need a fallback or just use ID.
-                # For better UX, we can try to fetch title via oembed or just generic info, 
-                # but let's stick to core functionality first.
-                return [Document(page_content=full_text, metadata={"title": f"Video {video_id}", "source": self.url})], f"Video {video_id}"
+                # Use list_transcripts for better compatibility
+                try:
+                    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                    # Try to fetch manual english, or generated english, or any english
+                    try:
+                         transcript = transcript_list.find_transcript(['en', 'en-US', 'en-GB'])
+                    except:
+                         # Fallback to generated
+                         transcript = transcript_list.find_generated_transcript(['en', 'en-US', 'en-GB'])
+                    
+                    full_text = " ".join([t['text'] for t in transcript.fetch()])
+                    
+                    logger.info("Successfully fetched transcript via YouTubeTranscriptApi API! 🎉")
+                    return [Document(page_content=full_text, metadata={"title": f"Video {video_id}", "source": self.url})], f"Video {video_id}"
+                except Exception as inner_e:
+                    logger.warning(f"Failed to find English transcript: {inner_e}")
+                    raise inner_e
 
         except Exception as e:
              logger.warning(f"YouTubeTranscriptApi failed: {e}. Falling back to yt-dlp...")
