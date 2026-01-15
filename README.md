@@ -2,7 +2,9 @@
 
 **Chat with any YouTube video.** This AI Assistant processes YouTube video transcripts and lets you ask questions about the content in real-time.
 
-🚀 **Live Demo:** [https://youtube-chat-ai.vercel.app/](https://youtube-chat-ai.vercel.app/)
+ **Live Demo:** [https://youtube-chat-ai.vercel.app/](https://youtube-chat-ai.vercel.app/)
+ Render failure , Hoping to bypass Youtube blocking it. I've tried cookies bypass for now and it failed. 
+ Works Perfectly if you host it yourself. I'll update if I find a new way
 
 ---
 
